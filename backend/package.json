@@ -1,0 +1,45 @@
+{
+  "name": "knowledge-assistant-backend",
+  "version": "1.0.0",
+  "description": "AI-powered knowledge management and research assistant backend",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "keywords": ["ai", "knowledge-management", "rag", "langchain"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "mongoose": "^8.0.3",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-github2": "^0.1.12",
+    "express-session": "^1.17.3",
+    "multer": "^1.4.5-lts.1",
+    "langchain": "^0.1.0",
+    "@langchain/openai": "^0.0.12",
+    "@langchain/community": "^0.0.20",
+    "chromadb": "^1.7.3",
+    "pdf-parse": "^1.1.1",
+    "mammoth": "^1.6.0",
+    "xlsx": "^0.18.5",
+    "cheerio": "^1.0.0-rc.12",
+    "axios": "^1.6.2",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "compression": "^1.7.4"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2",
+    "jest": "^29.7.0"
+  }
+}
