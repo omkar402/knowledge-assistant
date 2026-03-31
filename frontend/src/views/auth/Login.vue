@@ -37,7 +37,7 @@
           </p>
 
           <!-- OAuth buttons -->
-          <div class="space-y-3 mb-6">
+          <!-- <div class="space-y-3 mb-6">
             <a 
               :href="googleAuthUrl"
               class="btn-secondary w-full justify-center gap-3"
@@ -60,9 +60,9 @@
               </svg>
               Continue with GitHub
             </a>
-          </div>
+          </div> -->
 
-          <div class="relative mb-6">
+          <!-- <div class="relative mb-6">
             <div class="absolute inset-0 flex items-center">
               <div class="w-full border-t border-dark-200 dark:border-dark-700"></div>
             </div>
@@ -71,7 +71,7 @@
                 or continue with email
               </span>
             </div>
-          </div>
+          </div> -->
 
           <!-- Email/Password form -->
           <form @submit.prevent="handleSubmit" class="space-y-4">

@@ -37,7 +37,7 @@
           </p>
 
           <!-- OAuth buttons -->
-          <div class="space-y-3 mb-6">
+          <!-- <div class="space-y-3 mb-6">
             <a 
               :href="googleAuthUrl"
               class="btn-secondary w-full justify-center gap-3"
@@ -71,7 +71,7 @@
                 or continue with email
               </span>
             </div>
-          </div>
+          </div> -->
 
           <!-- Email/Password form -->
           <form @submit.prevent="handleSubmit" class="space-y-4">
