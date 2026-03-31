@@ -14,7 +14,11 @@ const passportConfig = require('./config/passport');
 
 // Routes
 const authRoutes = require('./routes/auth');
-
+const documentRoutes = require('./routes/documents');
+const chatRoutes = require('./routes/chat');
+const knowledgeBaseRoutes = require('./routes/knowledgeBase');
+const userRoutes = require('./routes/users');
+const teamRoutes = require('./routes/teams');
 
 const app = express();
 
