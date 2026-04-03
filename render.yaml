@@ -1,0 +1,102 @@
+# Render Infrastructure as Code
+# Deploy with: https://render.com/deploy
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ─────────────────────────────────────────────
+  # Backend – Node.js Web Service
+  # ─────────────────────────────────────────────
+  - type: web
+    name: knowledge-assistant-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node src/index.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # Set this to your MongoDB Atlas connection string
+      - key: MONGODB_URI
+        sync: false
+
+      # Auto-generated secrets
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # OpenAI key for RAG/LangChain
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # ChromaDB internal URL (auto-wired from the private service below)
+      - key: CHROMA_URL
+        fromService:
+          name: knowledge-assistant-chroma
+          type: pserv
+          property: hostport
+
+      - key: CHROMA_COLLECTION_NAME
+        value: knowledge_base
+
+      # Set to your Render frontend URL after first deploy
+      # e.g. https://knowledge-assistant-frontend.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+
+      # OAuth – Google (optional)
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # Set to: https://<your-backend>.onrender.com/api/auth/google/callback
+      - key: GOOGLE_CALLBACK_URL
+        sync: false
+
+      # OAuth – GitHub (optional)
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      # Set to: https://<your-backend>.onrender.com/api/auth/github/callback
+      - key: GITHUB_CALLBACK_URL
+        sync: false
+
+  # ─────────────────────────────────────────────
+  # ChromaDB – Private Service (vector store)
+  # ─────────────────────────────────────────────
+  - type: pserv
+    name: knowledge-assistant-chroma
+    image:
+      url: docker.io/chromadb/chroma:latest
+    plan: free
+
+  # ─────────────────────────────────────────────
+  # Frontend – Static Site (Vue/Vite)
+  # ─────────────────────────────────────────────
+  - type: web
+    name: knowledge-assistant-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      # Set to your backend Render URL
+      # e.g. https://knowledge-assistant-backend.onrender.com/api
+      - key: VITE_API_URL
+        sync: false
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: Cache-Control
+        value: no-cache
+    routes:
+      # SPA fallback – all routes serve index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html

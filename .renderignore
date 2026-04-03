@@ -1,0 +1,7 @@
+# Render ignores these paths during build
+backend/logs/
+backend/uploads/
+backend/.env
+frontend/.env
+**/*.log
+**/node_modules/

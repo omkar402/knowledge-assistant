@@ -1,0 +1,61 @@
+# Docker Compose for Knowledge Assistant
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7
+    container_name: ka-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: knowledge-assistant
+
+  # Chroma Vector DB
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: ka-chroma
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ka-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/knowledge-assistant
+      - CHROMA_URL=http://chroma:8000
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - mongodb
+      - chroma
+    volumes:
+      - ./backend/uploads:/app/uploads
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ka-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongodb_data:
+  chroma_data:
