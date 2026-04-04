@@ -1,9 +1,23 @@
 <template>
-  <div class="h-full flex">
+  <div class="h-full flex relative">
+    <!-- Mobile overlay -->
+    <div
+      v-if="showChatList"
+      class="fixed inset-0 bg-black/50 z-20 md:hidden"
+      @click="showChatList = false"
+    />
+
     <!-- Chat list sidebar -->
-    <div class="w-80 border-r border-dark-200 dark:border-dark-700 bg-white dark:bg-dark-800 flex-shrink-0 hidden md:flex flex-col">
+    <div
+      :class="[
+        'flex-shrink-0 flex flex-col bg-white dark:bg-dark-800 border-r border-dark-200 dark:border-dark-700 transition-transform duration-300',
+        'fixed inset-y-0 left-0 z-30 w-80 md:relative md:translate-x-0',
+        showChatList ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      ]"
+      style="width: 280px;"
+    >
       <!-- Header -->
-      <div class="p-4 border-b border-dark-200 dark:border-dark-700">
+      <div class="p-4 border-b border-dark-200 dark:border-dark-700 md:hidden">
         <button 
           @click="startNewChat"
           class="btn-primary w-full justify-center gap-2"
@@ -44,10 +58,10 @@
             v-for="chat in chats"
             :key="chat._id"
             :class="[
-              'p-3 cursor-pointer transition-colors',
+              'group p-3 cursor-pointer transition-colors',
               currentChatId === chat._id 
                 ? 'bg-primary-50 dark:bg-primary-900/20' 
-                : 'hover:bg-dark-50 dark:hover:bg-dark-750'
+                : 'hover:bg-dark-50 dark:hover:bg-dark-700'
             ]"
             @click="selectChat(chat._id)"
           >
@@ -65,10 +79,11 @@
                 </p>
               </div>
               <button 
-                @click.stop="deleteChat(chat._id)"
-                class="opacity-0 group-hover:opacity-100 btn-icon"
+                @click.stop="confirmDeleteChat(chat._id, chat.title)"
+                class="opacity-0 group-hover:opacity-100 focus:opacity-100 btn-icon transition-opacity"
+                title="Delete chat"
               >
-                <TrashIcon class="w-4 h-4 text-dark-400" />
+                <TrashIcon class="w-4 h-4 text-red-400 hover:text-red-600" />
               </button>
             </div>
           </div>
@@ -93,6 +108,14 @@
         </div>
         
         <div class="flex items-center gap-2">
+          <select
+            v-model="selectedModel"
+            class="input text-sm w-64"
+          >
+            <option v-for="m in MODELS" :key="m.value" :value="m.value">
+              {{ m.label }}
+            </option>
+          </select>
           <select 
             v-model="chatKnowledgeBase"
             class="input text-sm w-48"
@@ -212,6 +235,45 @@
         </p>
       </div>
     </div>
+
+    <!-- Delete confirmation modal -->
+    <Teleport to="body">
+      <div
+        v-if="deleteModal.show"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+        @click.self="deleteModal.show = false"
+      >
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-xl w-full max-w-sm p-6">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+              <TrashIcon class="w-5 h-5 text-red-600 dark:text-red-400" />
+            </div>
+            <div>
+              <h3 class="font-semibold text-dark-900 dark:text-white">Delete Chat</h3>
+              <p class="text-sm text-dark-500">This action cannot be undone.</p>
+            </div>
+          </div>
+          <p class="text-sm text-dark-600 dark:text-dark-300 mb-6">
+            Delete "<span class="font-medium truncate">{{ deleteModal.title }}</span>"?
+          </p>
+          <div class="flex gap-3 justify-end">
+            <button
+              @click="deleteModal.show = false"
+              class="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              @click="deleteChat"
+              :disabled="deleteModal.deleting"
+              class="px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {{ deleteModal.deleting ? 'Deleting...' : 'Delete' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -247,6 +309,19 @@ const selectedKnowledgeBase = ref('')
 const chatKnowledgeBase = ref('')
 const messagesContainer = ref(null)
 const inputRef = ref(null)
+const deleteModal = ref({ show: false, chatId: null, title: '', deleting: false })
+
+const MODELS = [
+  { value: 'meta-llama/Llama-3.1-8B-Instruct',        label: 'Llama 3.1 8B (Fast & Free)' },
+  { value: 'meta-llama/Llama-3.2-3B-Instruct',        label: 'Llama 3.2 3B (Lightweight)' },
+  { value: 'Qwen/Qwen2.5-7B-Instruct',                label: 'Qwen 2.5 7B (Multilingual)' },
+  { value: 'Qwen/Qwen2.5-Coder-7B-Instruct',          label: 'Qwen 2.5 Coder 7B (Code)' },
+  { value: 'microsoft/Phi-3.5-mini-instruct',          label: 'Phi 3.5 Mini (Efficient)' },
+  { value: 'mistralai/Mixtral-8x7B-Instruct-v0.1',    label: 'Mixtral 8x7B (Powerful)' },
+  { value: 'deepseek-ai/DeepSeek-R1-Distill-Qwen-7B', label: 'DeepSeek R1 7B (Reasoning)' },
+]
+
+const selectedModel = ref(MODELS[0].value)
 
 const currentChatId = computed(() => route.params.id)
 
@@ -318,23 +393,29 @@ function startNewChat() {
 }
 
 function selectChat(chatId) {
+  showChatList.value = false
   router.push(`/chat/${chatId}`)
 }
 
-async function deleteChat(chatId) {
-  if (!confirm('Are you sure you want to delete this chat?')) return
-  
+function confirmDeleteChat(chatId, title) {
+  deleteModal.value = { show: true, chatId, title, deleting: false }
+}
+
+async function deleteChat() {
+  const chatId = deleteModal.value.chatId
+  deleteModal.value.deleting = true
   try {
     await chatService.deleteChat(chatId)
     chats.value = chats.value.filter(c => c._id !== chatId)
-    
+    deleteModal.value.show = false
     if (currentChatId.value === chatId) {
       startNewChat()
     }
-    
     toastStore.success('Chat deleted')
   } catch (error) {
     toastStore.error('Failed to delete chat')
+  } finally {
+    deleteModal.value.deleting = false
   }
 }
 
@@ -362,7 +443,8 @@ async function sendMessage(query) {
     const response = await chatService.query({
       query,
       chatId: currentChatId.value || undefined,
-      knowledgeBaseId: chatKnowledgeBase.value || undefined
+      knowledgeBaseId: chatKnowledgeBase.value || undefined,
+      settings: { model: selectedModel.value }
     })
 
     // Add assistant response

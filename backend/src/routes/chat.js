@@ -51,7 +51,7 @@ router.post('/query', authenticate, async (req, res) => {
 
     // Merge settings (request > chat > knowledge base > defaults)
     const mergedSettings = {
-      model: settings.model || chat.settings?.model || kbSettings.model || 'gpt-4o-mini',
+      model: settings.model || chat.settings?.model || kbSettings.model || 'meta-llama/Llama-3.1-8B-Instruct',
       temperature: settings.temperature ?? chat.settings?.temperature ?? kbSettings.temperature ?? 0.7,
       maxTokens: settings.maxTokens || chat.settings?.maxTokens || kbSettings.maxTokens || 2000,
       systemPrompt: settings.systemPrompt || chat.settings?.systemPrompt || kbSettings.systemPrompt,

@@ -1,6 +1,7 @@
-const { ChatOpenAI } = require('@langchain/openai');
-const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
-const { PromptTemplate } = require('@langchain/core/prompts');
+// const { ChatOpenAI } = require('@langchain/openai'); // OpenAI - commented out (switched to HuggingFace)
+// const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages'); // Not needed for HuggingFace direct API
+// const { PromptTemplate } = require('@langchain/core/prompts'); // Unused
+const { HfInference } = require('@huggingface/inference');
 const vectorStore = require('./vectorStore');
 const Document = require('../models/Document');
 const logger = require('../config/logger');
@@ -10,27 +11,37 @@ const logger = require('../config/logger');
  */
 class RAGService {
   constructor() {
-    this.llm = null;
+    // this.llm=null
+    this.hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
+    this.llmConfig = {};
   }
 
   /**
-   * Initialize the LLM
+   * Initialize the LLM config
    */
   initializeLLM(options = {}) {
     const {
-      model = 'gpt-4o-mini',
+      // model='gpt-4o-mini'
+      model = 'meta-llama/Llama-3.1-8B-Instruct',
       temperature = 0.7,
       maxTokens = 2000
     } = options;
+    // openAIApiKey: process.env.OPENAI_API_KEY, // OpenAI - commented out
+    this.llmConfig = { model, temperature, maxNewTokens: maxTokens };
+    return this.llmConfig;
+  }
 
-    this.llm = new ChatOpenAI({
-      openAIApiKey: process.env.OPENAI_API_KEY,
-      modelName: model,
-      temperature,
-      maxTokens
+  /**
+   * Invoke the HuggingFace model with a messages array (chat completion)
+   */
+  async invokeLLM(messages) {
+    const result = await this.hf.chatCompletion({
+      model: this.llmConfig.model || 'meta-llama/Llama-3.1-8B-Instruct',
+      messages,
+      temperature: this.llmConfig.temperature ?? 0.7,
+      max_tokens: this.llmConfig.maxNewTokens ?? 2000
     });
-
-    return this.llm;
+    return result.choices[0].message.content;
   }
 
   /**
@@ -44,7 +55,7 @@ class RAGService {
       knowledgeBaseId,
       userId,
       conversationHistory = [],
-      model = 'gpt-4o-mini',
+      model = 'meta-llama/Llama-3.1-8B-Instruct',
       temperature = 0.7,
       maxTokens = 2000,
       systemPrompt,
@@ -76,7 +87,7 @@ class RAGService {
       // Build context from search results
       const context = await this.buildContext(searchResults);
       
-      // Build messages
+      // Build messages array for chat completion
       const messages = this.buildMessages(
         query,
         context,
@@ -85,9 +96,8 @@ class RAGService {
         citationStyle
       );
 
-      // Generate response
-      const response = await this.llm.invoke(messages);
-      const answer = response.content;
+      // Generate response via HuggingFace Inference API
+      const answer = await this.invokeLLM(messages);
 
       // Extract and format citations
       const citations = await this.extractCitations(searchResults);
@@ -101,7 +111,7 @@ class RAGService {
           model,
           processingTimeMs: processingTime,
           sourcesCount: searchResults.length,
-          tokensUsed: response.usage_metadata?.total_tokens || null
+          tokensUsed: null // HuggingFace Inference API does not expose token usage
         }
       };
     } catch (error) {
@@ -127,7 +137,7 @@ class RAGService {
   }
 
   /**
-   * Build messages array for LLM
+   * Build a messages array for chat completion
    */
   buildMessages(query, context, conversationHistory, systemPrompt, citationStyle) {
     const defaultSystemPrompt = `You are a knowledgeable research assistant with access to a curated knowledge base. Your role is to provide accurate, well-cited answers based on the provided context.
@@ -143,25 +153,22 @@ IMPORTANT GUIDELINES:
 Remember: Accuracy and proper citation are your top priorities.`;
 
     const messages = [
-      new SystemMessage(systemPrompt || defaultSystemPrompt)
+      { role: 'system', content: systemPrompt || defaultSystemPrompt }
     ];
 
-    // Add conversation history
-    for (const msg of conversationHistory.slice(-10)) { // Last 10 messages
-      if (msg.role === 'user') {
-        messages.push(new HumanMessage(msg.content));
-      } else if (msg.role === 'assistant') {
-        messages.push(new AIMessage(msg.content));
+    // Add conversation history (last 10 messages)
+    for (const msg of conversationHistory.slice(-10)) {
+      if (msg.role === 'user' || msg.role === 'assistant') {
+        messages.push({ role: msg.role, content: msg.content });
       }
     }
 
-    // Add current query with context
+    // Append current query with context
     let userMessage = query;
     if (context) {
       userMessage = `Context from knowledge base:\n\n${context}\n\n---\n\nUser question: ${query}`;
     }
-
-    messages.push(new HumanMessage(userMessage));
+    messages.push({ role: 'user', content: userMessage });
 
     return messages;
   }
@@ -204,7 +211,7 @@ Remember: Accuracy and proper citation are your top priorities.`;
   async summarize(content, options = {}) {
     const {
       maxLength = 500,
-      model = 'gpt-4o-mini',
+      model = 'meta-llama/Llama-3.1-8B-Instruct',
       style = 'concise' // concise, detailed, bullet-points
     } = options;
 
@@ -216,15 +223,12 @@ Remember: Accuracy and proper citation are your top priorities.`;
       'bullet-points': 'Provide a summary using bullet points for key information.'
     };
 
-    const prompt = `Summarize the following content. ${styleInstructions[style]}
+    const messages = [
+      { role: 'system', content: `You are a helpful assistant that summarizes content. ${styleInstructions[style]}` },
+      { role: 'user', content: `Summarize the following content:\n\n${content.substring(0, 10000)}` }
+    ];
 
-Content:
-${content.substring(0, 10000)} // Limit input to avoid token limits
-
-Summary:`;
-
-    const response = await this.llm.invoke([new HumanMessage(prompt)]);
-    return response.content;
+    return await this.invokeLLM(messages);
   }
 
   /**
@@ -233,22 +237,26 @@ Summary:`;
    * @param {string} focusArea - Area to focus insights on
    */
   async generateInsights(documents, focusArea = null) {
-    this.initializeLLM({ model: 'gpt-4o-mini', temperature: 0.8 });
+    this.initializeLLM({ model: 'meta-llama/Llama-3.1-8B-Instruct', temperature: 0.8 });
 
     const combinedContent = documents
       .map(doc => doc.substring(0, 3000))
       .join('\n\n---\n\n');
 
-    let prompt = `Analyze the following documents and provide key insights, patterns, and notable findings.`;
-    
+    let userPrompt = `Analyze the following documents and provide key insights, patterns, and notable findings.`;
+
     if (focusArea) {
-      prompt += ` Focus particularly on aspects related to: ${focusArea}`;
+      userPrompt += ` Focus particularly on aspects related to: ${focusArea}`;
     }
 
-    prompt += `\n\nDocuments:\n${combinedContent}\n\nProvide your analysis in a structured format with:\n1. Key Themes\n2. Notable Insights\n3. Connections & Patterns\n4. Questions for Further Exploration`;
+    userPrompt += `\n\nDocuments:\n${combinedContent}\n\nProvide your analysis in a structured format with:\n1. Key Themes\n2. Notable Insights\n3. Connections & Patterns\n4. Questions for Further Exploration`;
 
-    const response = await this.llm.invoke([new HumanMessage(prompt)]);
-    return response.content;
+    const messages = [
+      { role: 'system', content: 'You are a helpful research analyst that generates structured insights from documents.' },
+      { role: 'user', content: userPrompt }
+    ];
+
+    return await this.invokeLLM(messages);
   }
 }
 

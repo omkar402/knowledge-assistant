@@ -135,7 +135,7 @@ const requirePlan = (...plans) => {
  * Generate JWT token
  */
 const generateToken = (user, expiresIn = process.env.JWT_EXPIRES_IN || '7d') => {
-  console.log('Generating token for user:', process.env.JWT_SECRET);
+  // console.log('Generating token for user:', user._id);
   return jwt.sign(
     { 
       userId: user._id,

@@ -45,7 +45,7 @@
       </nav>
 
       <!-- User section -->
-      <div class="p-4 border-t border-dark-200 dark:border-dark-700">
+      <div ref="userSectionRef" class="p-4 border-t border-dark-200 dark:border-dark-700">
         <div class="flex items-center gap-3">
           <img 
             v-if="user?.avatar"
@@ -74,20 +74,53 @@
           </button>
         </div>
 
-        <!-- User dropdown -->
-        <div 
-          v-if="userMenuOpen" 
-          class="absolute bottom-20 left-4 right-4 dropdown"
+        <!-- User profile card -->
+        <div
+          v-if="userMenuOpen"
+          class="absolute bottom-20 left-4 right-4 bg-white dark:bg-dark-800 rounded-xl shadow-lg border border-dark-200 dark:border-dark-700 overflow-hidden z-50"
           @click.stop
         >
-          <router-link to="/settings" class="dropdown-item" @click="userMenuOpen = false">
-            <Cog6ToothIcon class="w-4 h-4" />
-            Settings
-          </router-link>
-          <button @click="handleLogout" class="dropdown-item w-full text-red-600 dark:text-red-400">
-            <ArrowRightOnRectangleIcon class="w-4 h-4" />
-            Logout
-          </button>
+          <!-- Profile header -->
+          <div class="p-4 bg-primary-50 dark:bg-primary-900/20 flex items-center gap-3">
+            <img
+              v-if="user?.avatar"
+              :src="user.avatar"
+              :alt="user.name"
+              class="w-12 h-12 rounded-full ring-2 ring-primary-400"
+            />
+            <div
+              v-else
+              class="w-12 h-12 rounded-full bg-primary-600 flex items-center justify-center ring-2 ring-primary-400 flex-shrink-0"
+            >
+              <span class="text-white font-bold text-lg">{{ userInitials }}</span>
+            </div>
+            <div class="min-w-0">
+              <p class="font-semibold text-dark-900 dark:text-white truncate">{{ user?.name }}</p>
+              <p class="text-xs text-dark-500 truncate">{{ user?.email }}</p>
+              <span class="inline-block mt-1 text-xs px-2 py-0.5 rounded-full bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300 font-medium">
+                {{ user?.plan || 'Free' }} Plan
+              </span>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="p-2">
+            <router-link
+              to="/settings"
+              class="dropdown-item"
+              @click="userMenuOpen = false"
+            >
+              <Cog6ToothIcon class="w-4 h-4" />
+              Settings
+            </router-link>
+            <button
+              @click="handleLogout"
+              class="dropdown-item w-full text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20"
+            >
+              <ArrowRightOnRectangleIcon class="w-4 h-4" />
+              Logout
+            </button>
+          </div>
         </div>
       </div>
     </aside>
@@ -165,6 +198,7 @@ const themeStore = useThemeStore()
 
 const sidebarOpen = ref(false)
 const userMenuOpen = ref(false)
+const userSectionRef = ref(null)
 
 const user = computed(() => authStore.user)
 
@@ -210,7 +244,7 @@ async function handleLogout() {
 
 // Close user menu on click outside
 function handleClickOutside(event) {
-  if (userMenuOpen.value) {
+  if (userMenuOpen.value && userSectionRef.value && !userSectionRef.value.contains(event.target)) {
     userMenuOpen.value = false
   }
 }
