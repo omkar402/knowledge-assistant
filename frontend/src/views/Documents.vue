@@ -98,9 +98,9 @@
               {{ doc.description || getTypeLabel(doc.type) }}
             </p>
           </div>
-          <div class="opacity-0 group-hover:opacity-100 transition-opacity">
+          <div class="transition-opacity">
             <button 
-              @click.stop="openMenu(doc)" 
+              @click.stop="openMenu(doc, $event)" 
               class="btn-icon"
             >
               <EllipsisVerticalIcon class="w-5 h-5 text-dark-400" />
@@ -159,6 +159,50 @@
       </button>
     </div>
 
+    <!-- Dropdown Menu -->
+    <Teleport to="body">
+      <div
+        v-if="activeMenu"
+        class="fixed inset-0 z-40"
+        @click="closeMenu"
+      />
+      <div
+        v-if="activeMenu"
+        class="fixed z-50 w-48 bg-white dark:bg-dark-800 rounded-xl shadow-lg border border-dark-200 dark:border-dark-700 py-1"
+        :style="{ top: menuPosition.y + 'px', left: menuPosition.x + 'px' }"
+      >
+        <button
+          @click="viewDocument(activeMenu)"
+          class="w-full flex items-center gap-2 px-4 py-2 text-sm text-dark-700 dark:text-dark-300 hover:bg-dark-50 dark:hover:bg-dark-700 transition-colors"
+        >
+          <EyeIcon class="w-4 h-4" />
+          View
+        </button>
+        <button
+          @click="reprocessDoc(activeMenu)"
+          class="w-full flex items-center gap-2 px-4 py-2 text-sm text-dark-700 dark:text-dark-300 hover:bg-dark-50 dark:hover:bg-dark-700 transition-colors"
+        >
+          <ArrowPathIcon class="w-4 h-4" />
+          Reprocess
+        </button>
+        <button
+          @click="openMoveModal(activeMenu)"
+          class="w-full flex items-center gap-2 px-4 py-2 text-sm text-dark-700 dark:text-dark-300 hover:bg-dark-50 dark:hover:bg-dark-700 transition-colors"
+        >
+          <FolderOpenIcon class="w-4 h-4" />
+          Move to KB
+        </button>
+        <hr class="my-1 border-dark-200 dark:border-dark-700" />
+        <button
+          @click="openDeleteModal(activeMenu)"
+          class="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+        >
+          <TrashIcon class="w-4 h-4" />
+          Delete
+        </button>
+      </div>
+    </Teleport>
+
     <!-- Upload Progress Modal -->
     <Modal v-model="showUploadProgress" title="Uploading Documents" :show-close="false">
       <div class="space-y-4">
@@ -216,11 +260,49 @@
         </button>
       </template>
     </Modal>
+
+    <!-- Delete Confirmation Modal -->
+    <Modal v-model="showDeleteModal" title="Delete Document">
+      <p class="text-dark-600 dark:text-dark-400">
+        Are you sure you want to delete
+        <strong class="text-dark-900 dark:text-white">{{ docToDelete?.title }}</strong>?
+        This action cannot be undone.
+      </p>
+      <template #footer>
+        <button @click="showDeleteModal = false" class="btn-secondary">Cancel</button>
+        <button @click="deleteDocument" class="btn-danger" :disabled="deleting">
+          {{ deleting ? 'Deleting...' : 'Delete' }}
+        </button>
+      </template>
+    </Modal>
+
+    <!-- Move to Knowledge Base Modal -->
+    <Modal v-model="showMoveModal" title="Move to Knowledge Base">
+      <div class="space-y-3">
+        <p class="text-sm text-dark-600 dark:text-dark-400">
+          Select a knowledge base for
+          <strong class="text-dark-900 dark:text-white">{{ docToMove?.title }}</strong>
+        </p>
+        <select v-model="moveKbId" class="input">
+          <option value="">None</option>
+          <option v-for="kb in knowledgeBases" :key="kb._id" :value="kb._id">
+            {{ kb.icon }} {{ kb.name }}
+          </option>
+        </select>
+      </div>
+      <template #footer>
+        <button @click="showMoveModal = false" class="btn-secondary">Cancel</button>
+        <button @click="moveDocument" class="btn-primary" :disabled="moving || !moveKbId">
+          {{ moving ? 'Moving...' : 'Move' }}
+        </button>
+      </template>
+    </Modal>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted, computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useToastStore } from '@/stores'
 import { documentService, knowledgeBaseService } from '@/services'
 import { formatDistanceToNow } from 'date-fns'
@@ -233,9 +315,14 @@ import {
   GlobeAltIcon,
   EllipsisVerticalIcon,
   DocumentIcon,
-  CodeBracketIcon
+  CodeBracketIcon,
+  EyeIcon,
+  ArrowPathIcon,
+  FolderOpenIcon,
+  TrashIcon
 } from '@heroicons/vue/24/outline'
 
+const router = useRouter()
 const toastStore = useToastStore()
 
 const loading = ref(true)
@@ -253,6 +340,21 @@ const sortBy = ref('createdAt')
 const showUploadProgress = ref(false)
 const showUrlModal = ref(false)
 const uploads = ref([])
+
+// Dropdown menu
+const activeMenu = ref(null)
+const menuPosition = reactive({ x: 0, y: 0 })
+
+// Delete modal
+const showDeleteModal = ref(false)
+const docToDelete = ref(null)
+const deleting = ref(false)
+
+// Move modal
+const showMoveModal = ref(false)
+const docToMove = ref(null)
+const moveKbId = ref('')
+const moving = ref(false)
 
 const urlForm = reactive({
   url: '',
@@ -414,7 +516,82 @@ function getStatusBadge(status) {
   return badges[status] || 'badge-primary'
 }
 
-function openMenu(doc) {
-  // Future: implement dropdown menu
+function openMenu(doc, event) {
+  const rect = event.currentTarget.getBoundingClientRect()
+  let x = rect.left
+  let y = rect.bottom + 4
+  if (x + 192 > window.innerWidth) {
+    x = rect.right - 192
+  }
+  menuPosition.x = x
+  menuPosition.y = y
+  activeMenu.value = doc
+}
+
+function closeMenu() {
+  activeMenu.value = null
+}
+
+function viewDocument(doc) {
+  closeMenu()
+  router.push(`/documents/${doc._id}`)
+}
+
+async function reprocessDoc(doc) {
+  closeMenu()
+  try {
+    await documentService.reprocessDocument(doc._id)
+    toastStore.success('Document queued for reprocessing')
+    await loadDocuments()
+  } catch (error) {
+    toastStore.error('Failed to reprocess document')
+  }
+}
+
+function openDeleteModal(doc) {
+  closeMenu()
+  docToDelete.value = doc
+  showDeleteModal.value = true
+}
+
+async function deleteDocument() {
+  if (!docToDelete.value) return
+  deleting.value = true
+  try {
+    await documentService.deleteDocument(docToDelete.value._id)
+    toastStore.success('Document deleted')
+    showDeleteModal.value = false
+    docToDelete.value = null
+    await loadDocuments()
+  } catch (error) {
+    toastStore.error('Failed to delete document')
+  } finally {
+    deleting.value = false
+  }
+}
+
+function openMoveModal(doc) {
+  closeMenu()
+  docToMove.value = doc
+  moveKbId.value = doc.knowledgeBase?._id || ''
+  showMoveModal.value = true
+}
+
+async function moveDocument() {
+  if (!docToMove.value) return
+  moving.value = true
+  try {
+    await documentService.updateDocument(docToMove.value._id, {
+      knowledgeBaseId: moveKbId.value || null
+    })
+    toastStore.success('Document moved successfully')
+    showMoveModal.value = false
+    docToMove.value = null
+    await loadDocuments()
+  } catch (error) {
+    toastStore.error('Failed to move document')
+  } finally {
+    moving.value = false
+  }
 }
 </script>
