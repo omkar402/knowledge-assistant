@@ -296,14 +296,6 @@ knowledge-assistant/
 ## 📜 License
 
 MIT — free to use, modify, and distribute.
-# - MONGODB_URI
-# - OPENAI_API_KEY
-# - JWT_SECRET
-# - OAuth credentials (Google, GitHub)
-
-# Start development server
-npm run dev
-```
 
 ### Frontend Setup
 
