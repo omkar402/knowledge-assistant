@@ -186,6 +186,7 @@ async function handleSubmit() {
       errors.email = message
     }
   } finally {
+    form.password = ''
     loading.value = false
   }
 }

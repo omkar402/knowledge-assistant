@@ -179,6 +179,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore, useThemeStore, useToastStore } from '@/stores'
 import { userService } from '@/services'
+import { hashPassword } from '@/utils/crypto'
 import Modal from '@/components/ui/Modal.vue'
 import Input from '@/components/ui/Input.vue'
 import {
@@ -271,7 +272,11 @@ async function changePassword() {
 
   changingPassword.value = true
   try {
-    await userService.changePassword(passwordForm.current, passwordForm.new)
+    const [hashedCurrent, hashedNew] = await Promise.all([
+      hashPassword(passwordForm.current),
+      hashPassword(passwordForm.new)
+    ])
+    await userService.changePassword(hashedCurrent, hashedNew)
     toastStore.success('Password changed')
     passwordForm.current = ''
     passwordForm.new = ''
@@ -287,7 +292,8 @@ async function deleteAccount() {
   if (deleteConfirmation.value !== 'DELETE') return
 
   try {
-    await userService.deleteAccount(deletePassword.value, 'DELETE')
+    const hashedPassword = await hashPassword(deletePassword.value)
+    await userService.deleteAccount(hashedPassword, 'DELETE')
     toastStore.success('Account deleted')
     authStore.logout()
     router.push('/login')

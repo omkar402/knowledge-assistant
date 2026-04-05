@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authService } from '@/services'
+import { hashPassword } from '@/utils/crypto'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null)
@@ -29,7 +30,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function login(email, password) {
     loading.value = true
     try {
-      const response = await authService.login(email, password)
+      const hashedPassword = await hashPassword(password)
+      const response = await authService.login(email, hashedPassword)
       setTokens(response.token, response.refreshToken)
       user.value = response.user
       return response
@@ -41,7 +43,8 @@ export const useAuthStore = defineStore('auth', () => {
   async function register(name, email, password) {
     loading.value = true
     try {
-      const response = await authService.register(name, email, password)
+      const hashedPassword = await hashPassword(password)
+      const response = await authService.register(name, email, hashedPassword)
       setTokens(response.token, response.refreshToken)
       user.value = response.user
       return response

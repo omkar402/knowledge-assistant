@@ -24,10 +24,30 @@ api.interceptors.request.use(
   }
 )
 
+// Sanitize sensitive fields from request config data to prevent password leakage in logs
+function sanitizeConfig(config) {
+  if (config?.data) {
+    try {
+      const data = typeof config.data === 'string' ? JSON.parse(config.data) : config.data
+      if (data && typeof data === 'object') {
+        const sanitized = { ...data }
+        if ('password' in sanitized) sanitized.password = '[REDACTED]'
+        if ('currentPassword' in sanitized) sanitized.currentPassword = '[REDACTED]'
+        if ('newPassword' in sanitized) sanitized.newPassword = '[REDACTED]'
+        config.data = typeof config.data === 'string' ? JSON.stringify(sanitized) : sanitized
+      }
+    } catch {
+      // not JSON, leave as-is
+    }
+  }
+  return config
+}
+
 // Response interceptor - handle errors & token refresh
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (error.config) sanitizeConfig(error.config)
     const originalRequest = error.config
 
     // Handle token expiration

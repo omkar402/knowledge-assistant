@@ -160,6 +160,15 @@
           <button class="btn-icon">
             <BellIcon class="w-5 h-5 text-dark-500" />
           </button>
+
+          <!-- Logout (mobile/tablet only) -->
+          <button
+            @click="handleLogout"
+            class="btn-icon lg:hidden text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+            title="Logout"
+          >
+            <ArrowRightOnRectangleIcon class="w-5 h-5" />
+          </button>
         </div>
       </header>
 
