@@ -1,61 +1,136 @@
-// const { ChatOpenAI } = require('@langchain/openai'); // OpenAI - commented out (switched to HuggingFace)
-// const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages'); // Not needed for HuggingFace direct API
-// const { PromptTemplate } = require('@langchain/core/prompts'); // Unused
-const { HfInference } = require('@huggingface/inference');
+const { ChatOpenAI } = require('@langchain/openai');
+const { InferenceClient } = require('@huggingface/inference');
+const { HumanMessage, SystemMessage, AIMessage } = require('@langchain/core/messages');
+const { ChatPromptTemplate } = require('@langchain/core/prompts');
+const { StringOutputParser } = require('@langchain/core/output_parsers');
+const { RunnableSequence, RunnableLambda } = require('@langchain/core/runnables');
 const vectorStore = require('./vectorStore');
 const Document = require('../models/Document');
 const logger = require('../config/logger');
 
 /**
- * RAG Service - Retrieval Augmented Generation for Q&A
+ * Create a LangChain LLM/chat-model.
+ * Priority: ChatOpenAI (OpenAI API key present) → HuggingFaceInference (fallback).
+ *
+ * Note: ChatOpenAI is a BaseChatModel that accepts message arrays.
+ *       HuggingFaceInference is a BaseLLM (completion model) that accepts a
+ *       string — we convert the message array to a formatted string before
+ *       invoking it (see _formatMessagesForHF).
+ *
+ * @param {Object} options
+ * @returns {{ llm, provider: string, model: string }}
+ */
+// Models that require max_completion_tokens and do not support temperature/max_tokens
+const OPENAI_COMPLETION_TOKENS_MODELS = new Set([
+  'o1', 'o1-mini', 'o1-preview',
+  'o3', 'o3-mini',
+  'o4-mini',
+  'gpt-5', 'gpt-5-mini',
+]);
+
+function isHuggingFaceModel(model) {
+  return typeof model === 'string' && model.includes('/');
+}
+
+function createLLM(options = {}) {
+  const { temperature = 0.7, maxTokens = 2000 } = options;
+  const requestedModel = options.model;
+
+  // Route to HuggingFace when the selected model is an HF model ID (contains '/')
+  if (isHuggingFaceModel(requestedModel)) {
+    const model = requestedModel;
+    logger.info(`LLM provider: HuggingFace (${model})`);
+    const hfClient = new InferenceClient(
+      process.env.HUGGINGFACE_API_KEY,
+      { provider: 'hf-inference' }   // pin to HF's own servers, not third-party
+    );
+    return {
+      llm: null,       // not a LangChain LLM — use hfClient directly
+      hfClient,
+      provider: 'huggingface',
+      model,
+      temperature,
+      maxTokens
+    };
+  }
+
+  // OpenAI path
+  if (process.env.OPENAI_API_KEY) {
+    const model = requestedModel || 'gpt-4o-mini';
+    logger.info(`LLM provider: OpenAI (${model})`);
+
+    const usesCompletionTokens = OPENAI_COMPLETION_TOKENS_MODELS.has(model);
+    const llmOptions = {
+      model,
+      openAIApiKey: process.env.OPENAI_API_KEY,
+    };
+
+    if (usesCompletionTokens) {
+      llmOptions.maxCompletionTokens = maxTokens;
+    } else {
+      llmOptions.temperature = temperature;
+      llmOptions.maxTokens = maxTokens;
+    }
+
+    return {
+      llm: new ChatOpenAI(llmOptions),
+      provider: 'openai',
+      model
+    };
+  }
+
+  const model = requestedModel || 'meta-llama/Llama-3.1-8B-Instruct';
+  logger.info(`LLM provider: HuggingFace (${model})`);
+  const hfClient = new InferenceClient(
+    process.env.HUGGINGFACE_API_KEY,
+    { provider: 'hf-inference' }
+  );
+  return {
+    llm: null,
+    hfClient,
+    provider: 'huggingface',
+    model,
+    temperature,
+    maxTokens
+  };
+}
+
+async function _callHfChat(hfClient, model, messages, temperature, maxTokens) {
+  const hfMessages = messages.map(m => {
+    if (m instanceof SystemMessage) return { role: 'system',    content: m.content };
+    if (m instanceof AIMessage)     return { role: 'assistant', content: m.content };
+    return                                 { role: 'user',      content: m.content };
+  });
+
+  const result = await hfClient.chatCompletion({
+    model,
+    messages: hfMessages,
+    max_tokens: maxTokens,
+    temperature,
+  });
+
+  return result.choices[0]?.message?.content ?? '';
+}
+
+
+
+/**
+ * RAG Service — Retrieval-Augmented Generation using LangChain.
  */
 class RAGService {
-  constructor() {
-    // this.llm=null
-    this.hf = new HfInference(process.env.HUGGINGFACE_API_KEY);
-    this.llmConfig = {};
-  }
+  // ─── Main RAG query ────────────────────────────────────────────────────────
 
   /**
-   * Initialize the LLM config
-   */
-  initializeLLM(options = {}) {
-    const {
-      // model='gpt-4o-mini'
-      model = 'meta-llama/Llama-3.1-8B-Instruct',
-      temperature = 0.7,
-      maxTokens = 2000
-    } = options;
-    // openAIApiKey: process.env.OPENAI_API_KEY, // OpenAI - commented out
-    this.llmConfig = { model, temperature, maxNewTokens: maxTokens };
-    return this.llmConfig;
-  }
-
-  /**
-   * Invoke the HuggingFace model with a messages array (chat completion)
-   */
-  async invokeLLM(messages) {
-    const result = await this.hf.chatCompletion({
-      model: this.llmConfig.model || 'meta-llama/Llama-3.1-8B-Instruct',
-      messages,
-      temperature: this.llmConfig.temperature ?? 0.7,
-      max_tokens: this.llmConfig.maxNewTokens ?? 2000
-    });
-    return result.choices[0].message.content;
-  }
-
-  /**
-   * Process a query with RAG
-   * @param {string} query - User query
-   * @param {Object} options - Query options
-   * @returns {Object} - Answer with citations
+   * Answer a query using retrieved context + LLM.
+   * @param {string} query
+   * @param {Object} options
    */
   async query(query, options = {}) {
     const {
       knowledgeBaseId,
       userId,
       conversationHistory = [],
-      model = 'meta-llama/Llama-3.1-8B-Instruct',
+      model,
       temperature = 0.7,
       maxTokens = 2000,
       systemPrompt,
@@ -65,11 +140,10 @@ class RAGService {
     const startTime = Date.now();
 
     try {
-      // Initialize LLM with options
-      this.initializeLLM({ model, temperature, maxTokens });
+      const { llm, hfClient, provider, model: resolvedModel } = createLLM({ model, temperature, maxTokens });
 
-      // Retrieve relevant documents
-      let searchResults;
+      //Retrieve relevant documents via LangChain retriever
+      let searchResults = [];
       if (knowledgeBaseId) {
         searchResults = await vectorStore.searchKnowledgeBase(query, knowledgeBaseId, {
           limit: 5,
@@ -80,38 +154,34 @@ class RAGService {
           limit: 5,
           scoreThreshold: 0.3
         });
+      }
+      //Build context string from retrieved results
+      const context = this._buildContext(searchResults);
+      // ── 3. Build LangChain message array ────────────────────────────────
+      const messages = this._buildMessages(
+        query, context, conversationHistory, systemPrompt, citationStyle
+      );
+      // Invoke LLM 
+      let answer;
+      if (provider === 'openai') {
+        const chain = RunnableSequence.from([llm, new StringOutputParser()]);
+        answer = await chain.invoke(messages);
       } else {
-        searchResults = [];
+        answer = await _callHfChat(hfClient, resolvedModel, messages, temperature, maxTokens);
       }
 
-      // Build context from search results
-      const context = await this.buildContext(searchResults);
-      
-      // Build messages array for chat completion
-      const messages = this.buildMessages(
-        query,
-        context,
-        conversationHistory,
-        systemPrompt,
-        citationStyle
-      );
-
-      // Generate response via HuggingFace Inference API
-      const answer = await this.invokeLLM(messages);
-
-      // Extract and format citations
-      const citations = await this.extractCitations(searchResults);
-
-      const processingTime = Date.now() - startTime;
+      // Extract citations from search results for metadata (not necessarily cited in answer, but relevant to the response)
+      const citations = await this._extractCitations(searchResults);
 
       return {
         answer,
         citations,
         metadata: {
-          model,
-          processingTimeMs: processingTime,
+          model: resolvedModel,
+          provider,
+          processingTimeMs: Date.now() - startTime,
           sourcesCount: searchResults.length,
-          tokensUsed: null // HuggingFace Inference API does not expose token usage
+          tokensUsed: null
         }
       };
     } catch (error) {
@@ -120,143 +190,139 @@ class RAGService {
     }
   }
 
+  // ─── Summarisation ────────────────────────────────────────────────────────
   /**
-   * Build context from search results
+   * Summarise document content.
+   * @param {string} content
+   * @param {Object} options
    */
-  async buildContext(searchResults) {
-    if (!searchResults || searchResults.length === 0) {
-      return '';
+  async summarize(content, options = {}) {
+    const {
+      maxLength = 500,
+      model,
+      style = 'concise' // 'concise' | 'detailed' | 'bullet-points'
+    } = options;
+
+    const { llm, hfClient, provider, model: resolvedModel, temperature: t, maxTokens: mt } = createLLM({ model, temperature: 0.5, maxTokens: maxLength * 2 });
+
+    const styleMap = {
+      concise: 'Provide a brief, concise summary in 2-3 paragraphs.',
+      detailed: 'Provide a comprehensive summary covering all main points.',
+      'bullet-points': 'Provide a summary using bullet points for key information.'
+    };
+
+    const systemMsg = new SystemMessage(`You are a helpful assistant that summarises content. ${styleMap[style] || styleMap.concise}`);
+    const userMsg   = new HumanMessage(`Summarise the following content:\n\n${content.substring(0, 10000)}`);
+    const msgs = [systemMsg, userMsg];
+
+    if (provider === 'openai') {
+      const chain = RunnableSequence.from([llm, new StringOutputParser()]);
+      return chain.invoke(msgs);
+    } else {
+      return _callHfChat(hfClient, resolvedModel, msgs, t, mt);
     }
-
-    const contextParts = searchResults.map((result, index) => {
-      const citation = `[${index + 1}]`;
-      return `${citation} ${result.content}\n(Source: ${result.metadata.title || 'Unknown'})`;
-    });
-
-    return contextParts.join('\n\n---\n\n');
   }
 
+  // ─── Insights ─────────────────────────────────────────────────────────────
+
   /**
-   * Build a messages array for chat completion
+   * Generate insights across multiple document contents.
+   * @param {string[]} documents
+   * @param {string|null} focusArea
    */
-  buildMessages(query, context, conversationHistory, systemPrompt, citationStyle) {
-    const defaultSystemPrompt = `You are a knowledgeable research assistant with access to a curated knowledge base. Your role is to provide accurate, well-cited answers based on the provided context.
+  async generateInsights(documents, focusArea = null) {
+    const { llm, hfClient, provider, model: resolvedModel, temperature: t, maxTokens: mt } = createLLM({ temperature: 0.8 });
 
-IMPORTANT GUIDELINES:
-1. Base your answers primarily on the provided context
-2. Always cite your sources using ${citationStyle === 'inline' ? 'inline citations like [1], [2]' : 'numbered references'}
-3. If the context doesn't contain relevant information, clearly state that
-4. Be concise but thorough
-5. If you need to make inferences beyond the context, clearly indicate this
-6. Format your response with clear structure when appropriate
+    const combinedContent = documents
+      .map(doc => doc.substring(0, 3000))
+      .join('\n\n---\n\n');
 
-Remember: Accuracy and proper citation are your top priorities.`;
+    const focusLine = focusArea
+      ? ` Focus particularly on aspects related to: ${focusArea}.`
+      : '';
 
-    const messages = [
-      { role: 'system', content: systemPrompt || defaultSystemPrompt }
+    const userText =
+      `Analyse the following documents and provide key insights, patterns, and notable findings.${focusLine}\n\n` +
+      `Documents:\n${combinedContent}\n\n` +
+      `Provide your analysis in a structured format with:\n` +
+      `1. Key Themes\n2. Notable Insights\n3. Connections & Patterns\n4. Questions for Further Exploration`;
+
+    const msgs = [
+      new SystemMessage('You are a helpful research analyst that generates structured insights from documents.'),
+      new HumanMessage(userText)
     ];
 
-    // Add conversation history (last 10 messages)
+    if (provider === 'openai') {
+      const chain = RunnableSequence.from([llm, new StringOutputParser()]);
+      return chain.invoke(msgs);
+    } else {
+      return _callHfChat(hfClient, resolvedModel, msgs, t, mt);
+    }
+  }
+
+  // ─── Private helpers ──────────────────────────────────────────────────────
+  _buildContext(searchResults) {
+    if (!searchResults?.length) return '';
+    return searchResults
+      .map((r, i) => `[${i + 1}] ${r.content}\n(Source: ${r.metadata?.title || 'Unknown'})`)
+      .join('\n\n---\n\n');
+  }
+
+  _buildMessages(query, context, conversationHistory, systemPrompt, citationStyle) {
+    const defaultSystem =
+      `You are a knowledgeable research assistant with access to a curated knowledge base. ` +
+      `Your role is to provide accurate, well-cited answers based on the provided context.\n\n` +
+      `IMPORTANT GUIDELINES:\n` +
+      `1. Base your answers primarily on the provided context.\n` +
+      `2. Always cite your sources using ${citationStyle === 'inline' ? 'inline citations like [1], [2]' : 'numbered references'}.\n` +
+      `3. If the context doesn't contain relevant information, clearly state that.\n` +
+      `4. Be concise but thorough.\n` +
+      `5. If you need to make inferences beyond the context, clearly indicate this.\n` +
+      `6. Format your response with clear structure when appropriate.\n\n` +
+      `Remember: Accuracy and proper citation are your top priorities.`;
+
+    const messages = [new SystemMessage(systemPrompt || defaultSystem)];
+
+    // Conversation history (last 10 turns)
     for (const msg of conversationHistory.slice(-10)) {
-      if (msg.role === 'user' || msg.role === 'assistant') {
-        messages.push({ role: msg.role, content: msg.content });
-      }
+      if (msg.role === 'user') messages.push(new HumanMessage(msg.content));
+      else if (msg.role === 'assistant') messages.push(new AIMessage(msg.content));
     }
 
-    // Append current query with context
-    let userMessage = query;
-    if (context) {
-      userMessage = `Context from knowledge base:\n\n${context}\n\n---\n\nUser question: ${query}`;
-    }
-    messages.push({ role: 'user', content: userMessage });
+    // Current question + retrieved context
+    const userContent = context
+      ? `Context from knowledge base:\n\n${context}\n\n---\n\nUser question: ${query}`
+      : query;
 
+    messages.push(new HumanMessage(userContent));
     return messages;
   }
 
-  /**
-   * Extract citations from search results
-   */
-  async extractCitations(searchResults) {
+  async _extractCitations(searchResults) {
     const citations = [];
 
     for (const result of searchResults) {
-      const documentId = result.metadata.documentId;
-      
-      // Get document details
+      const documentId = result.metadata?.documentId;
       let document;
       try {
-        document = await Document.findById(documentId).select('title type sourceUrl');
-      } catch (e) {
+        if (documentId) {
+          document = await Document.findById(documentId).select('title type sourceUrl');
+        }
+      } catch {
         // Document may have been deleted
       }
 
       citations.push({
         documentId,
-        documentTitle: document?.title || result.metadata.title || 'Unknown',
+        documentTitle: document?.title || result.metadata?.title || 'Unknown',
         excerpt: result.content.substring(0, 200) + '...',
-        chunkIndex: result.metadata.chunkIndex,
+        chunkIndex: result.metadata?.chunkIndex,
         relevanceScore: result.score,
         sourceUrl: document?.sourceUrl || null
       });
     }
 
     return citations;
-  }
-
-  /**
-   * Generate a summary for a document
-   * @param {string} content - Document content
-   * @param {Object} options - Summary options
-   */
-  async summarize(content, options = {}) {
-    const {
-      maxLength = 500,
-      model = 'meta-llama/Llama-3.1-8B-Instruct',
-      style = 'concise' // concise, detailed, bullet-points
-    } = options;
-
-    this.initializeLLM({ model, temperature: 0.5, maxTokens: maxLength * 2 });
-
-    const styleInstructions = {
-      concise: 'Provide a brief, concise summary in 2-3 paragraphs.',
-      detailed: 'Provide a comprehensive summary covering all main points.',
-      'bullet-points': 'Provide a summary using bullet points for key information.'
-    };
-
-    const messages = [
-      { role: 'system', content: `You are a helpful assistant that summarizes content. ${styleInstructions[style]}` },
-      { role: 'user', content: `Summarize the following content:\n\n${content.substring(0, 10000)}` }
-    ];
-
-    return await this.invokeLLM(messages);
-  }
-
-  /**
-   * Generate insights from documents
-   * @param {Array} documents - Array of document contents
-   * @param {string} focusArea - Area to focus insights on
-   */
-  async generateInsights(documents, focusArea = null) {
-    this.initializeLLM({ model: 'meta-llama/Llama-3.1-8B-Instruct', temperature: 0.8 });
-
-    const combinedContent = documents
-      .map(doc => doc.substring(0, 3000))
-      .join('\n\n---\n\n');
-
-    let userPrompt = `Analyze the following documents and provide key insights, patterns, and notable findings.`;
-
-    if (focusArea) {
-      userPrompt += ` Focus particularly on aspects related to: ${focusArea}`;
-    }
-
-    userPrompt += `\n\nDocuments:\n${combinedContent}\n\nProvide your analysis in a structured format with:\n1. Key Themes\n2. Notable Insights\n3. Connections & Patterns\n4. Questions for Further Exploration`;
-
-    const messages = [
-      { role: 'system', content: 'You are a helpful research analyst that generates structured insights from documents.' },
-      { role: 'user', content: userPrompt }
-    ];
-
-    return await this.invokeLLM(messages);
   }
 }
 

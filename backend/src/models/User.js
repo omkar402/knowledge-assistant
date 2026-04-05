@@ -82,8 +82,7 @@ const userSchema = new mongoose.Schema({
 
 // Index for efficient queries
 userSchema.index({ email: 1 });
-userSchema.index({ googleId: 1 });
-userSchema.index({ githubId: 1 });
+// googleId and githubId already indexed via sparse:true in schema definition
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

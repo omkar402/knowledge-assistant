@@ -347,8 +347,17 @@ router.post('/:id/reprocess', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Document not found.' });
     }
 
+    // Delete old vectors to avoid duplicates
+    if (document.embeddings.vectorIds?.length > 0) {
+      await vectorStore.deleteVectors(document.embeddings.vectorIds).catch(err =>
+        logger.warn(`Could not delete old vectors for ${document._id}:`, err.message)
+      );
+    }
+
     // Reset embedding status
     document.embeddings.status = 'pending';
+    document.embeddings.error = undefined;
+    document.embeddings.vectorIds = [];
     document.isProcessing = true;
     await document.save();
 
@@ -411,8 +420,8 @@ async function processDocumentAsync(documentId) {
       document.metadata = { ...document.metadata, ...result.metadata };
     }
 
-    // Generate embeddings and store in vector store
-    const chunks = documentProcessor.splitIntoChunks(result.raw);
+    // Generate embeddings and store in vector store (splitIntoChunks is async — SemanticChunker)
+    const chunks = await documentProcessor.splitIntoChunks(result.raw);
     const vectorIds = await vectorStore.addDocument(documentId, chunks, {
       title: document.title,
       type: document.type,
@@ -423,6 +432,7 @@ async function processDocumentAsync(documentId) {
     document.embeddings.chunksCount = chunks.length;
     document.embeddings.vectorIds = vectorIds;
     document.embeddings.processedAt = new Date();
+    document.embeddings.error = undefined;
     document.isProcessing = false;
 
     await document.save();
@@ -462,8 +472,8 @@ async function processWebPageAsync(documentId, url) {
       document.metadata = { ...document.metadata, ...result.metadata };
     }
 
-    // Generate embeddings
-    const chunks = documentProcessor.splitIntoChunks(result.raw);
+    // Generate embeddings (splitIntoChunks is async — SemanticChunker)
+    const chunks = await documentProcessor.splitIntoChunks(result.raw);
     const vectorIds = await vectorStore.addDocument(documentId, chunks, {
       title: document.title,
       type: 'webpage',
@@ -475,6 +485,7 @@ async function processWebPageAsync(documentId, url) {
     document.embeddings.chunksCount = chunks.length;
     document.embeddings.vectorIds = vectorIds;
     document.embeddings.processedAt = new Date();
+    document.embeddings.error = undefined;
     document.isProcessing = false;
 
     await document.save();
