@@ -1,439 +1,261 @@
 <template>
-  <div v-if="loading" class="p-6">
-    <div class="skeleton h-10 w-64 mb-4" />
-    <div class="skeleton h-6 w-48 mb-8" />
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="lg:col-span-2 skeleton h-96 rounded-xl" />
-      <div class="skeleton h-96 rounded-xl" />
-    </div>
-  </div>
+  <div class="h-screen flex flex-col overflow-hidden bg-white dark:bg-dark-900">
 
-  <div v-else-if="!knowledgeBase" class="p-6 text-center">
-    <p class="text-dark-500">Knowledge base not found</p>
-  </div>
+    <!-- Top bar -->
+    <div class="h-12 flex items-center px-3 gap-3 bg-white dark:bg-dark-800 border-b border-dark-200 dark:border-dark-700 flex-shrink-0">
+      <!-- Back -->
+      <router-link
+        to="/knowledge-bases"
+        class="btn-icon text-dark-500 hover:text-dark-900 dark:hover:text-white"
+      >
+        <ArrowLeftIcon class="w-4 h-4" />
+      </router-link>
 
-  <div v-else class="p-6">
-    <!-- Header -->
-    <div class="flex items-start justify-between mb-6">
-      <div class="flex items-center gap-4">
-        <router-link to="/knowledge-bases" class="btn-ghost p-2">
-          <ArrowLeftIcon class="w-5 h-5" />
-        </router-link>
-        <div 
-          class="w-14 h-14 rounded-xl flex items-center justify-center text-3xl"
-          :style="{ backgroundColor: knowledgeBase.color + '20' }"
-        >
-          {{ knowledgeBase.icon }}
-        </div>
-        <div>
-          <h1 class="text-2xl font-bold text-dark-900 dark:text-white">
-            {{ knowledgeBase.name }}
-          </h1>
-          <p class="text-dark-500">{{ knowledgeBase.description || 'No description' }}</p>
-        </div>
+      <!-- KB icon + name -->
+      <div
+        v-if="knowledgeBase"
+        class="w-6 h-6 rounded flex items-center justify-center text-sm flex-shrink-0"
+        :style="{ backgroundColor: (knowledgeBase.color || '#3b82f6') + '22' }"
+      >
+        {{ knowledgeBase.icon }}
       </div>
-      <div class="flex gap-2">
-        <button @click="showShareModal = true" class="btn-secondary gap-2">
-          <ShareIcon class="w-4 h-4" />
-          Share
-        </button>
-        <button @click="showEditModal = true" class="btn-secondary gap-2">
-          <PencilIcon class="w-4 h-4" />
-          Edit
-        </button>
-        <router-link :to="`/chat?kb=${knowledgeBase._id}`" class="btn-primary gap-2">
-          <ChatBubbleLeftRightIcon class="w-4 h-4" />
-          Chat
-        </router-link>
-      </div>
-    </div>
+      <h1 class="text-sm font-semibold text-dark-900 dark:text-white truncate flex-1">
+        {{ knowledgeBase?.name || 'Loading...' }}
+      </h1>
 
-    <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-      <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-dark-900 dark:text-white">
-          {{ stats?.totalDocuments || 0 }}
-        </p>
-        <p class="text-sm text-dark-500">Documents</p>
-      </div>
-      <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-dark-900 dark:text-white">
-          {{ stats?.totalChunks || 0 }}
-        </p>
-        <p class="text-sm text-dark-500">Chunks</p>
-      </div>
-      <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-dark-900 dark:text-white">
-          {{ stats?.totalQueries || 0 }}
-        </p>
-        <p class="text-sm text-dark-500">Queries</p>
-      </div>
-      <div class="card p-4 text-center">
-        <p class="text-2xl font-bold text-dark-900 dark:text-white">
-          {{ formatNumber(stats?.totalWords || 0) }}
-        </p>
-        <p class="text-sm text-dark-500">Words</p>
-      </div>
+      <!-- Source count badge -->
+      <span
+        v-if="documents.length"
+        class="text-xs text-dark-400 flex-shrink-0"
+      >
+        {{ documents.length }} {{ documents.length === 1 ? 'source' : 'sources' }}
+      </span>
+
+      <!-- Theme toggle -->
+      <button @click="themeStore.toggleTheme()" class="btn-icon text-dark-400 hover:text-dark-600 dark:hover:text-dark-200">
+        <SunIcon v-if="themeStore.isDark" class="w-4 h-4" />
+        <MoonIcon v-else class="w-4 h-4" />
+      </button>
+
+      <!-- Share -->
+      <button
+        @click="showShareModal = true"
+        class="btn-icon text-dark-400 hover:text-dark-600 dark:hover:text-dark-200"
+        title="Share"
+      >
+        <ShareIcon class="w-4 h-4" />
+      </button>
+
+      <!-- Settings -->
+      <button
+        @click="showSettingsModal = true"
+        class="btn-icon text-dark-400 hover:text-dark-600 dark:hover:text-dark-200"
+        title="Notebook settings"
+      >
+        <Cog6ToothIcon class="w-4 h-4" />
+      </button>
     </div>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Documents -->
-      <div class="lg:col-span-2">
-        <div class="card">
-          <div class="p-4 border-b border-dark-200 dark:border-dark-700 flex items-center justify-between">
-            <h2 class="font-semibold text-dark-900 dark:text-white">Documents</h2>
-            <button @click="$refs.fileInput.click()" class="btn-primary btn-sm gap-1">
-              <PlusIcon class="w-4 h-4" />
-              Add
-            </button>
-            <input 
-              ref="fileInput"
-              type="file" 
-              class="hidden" 
-              multiple
-              @change="handleFileUpload"
-            />
-          </div>
+    <!-- Three-panel body -->
+    <div class="flex flex-1 overflow-hidden">
 
-          <div v-if="documents.length === 0" class="p-8 text-center text-dark-500">
-            <DocumentTextIcon class="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p>No documents yet</p>
-          </div>
+      <!-- LEFT: Sources panel -->
+      <SourcePanel
+        :kb-id="kbId"
+        :documents="documents"
+        :loading="loading"
+        @refresh="loadDocuments"
+      />
 
-          <div v-else class="divide-y divide-dark-200 dark:divide-dark-700">
-            <div
-              v-for="doc in documents"
-              :key="doc._id"
-              class="p-4 hover:bg-dark-50 dark:hover:bg-dark-750 transition-colors cursor-pointer flex items-center gap-3"
-              @click="$router.push(`/documents/${doc._id}`)"
-            >
-              <div :class="['w-10 h-10 rounded-lg flex items-center justify-center', getTypeColor(doc.type)]">
-                <DocumentIcon class="w-5 h-5" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="font-medium text-dark-900 dark:text-white truncate">
-                  {{ doc.title }}
-                </p>
-                <p class="text-sm text-dark-500">
-                  {{ doc.type.toUpperCase() }} · {{ formatDate(doc.createdAt) }}
-                </p>
-              </div>
-              <span :class="['badge', getStatusBadge(doc.embeddings?.status)]">
-                {{ doc.embeddings?.status || 'pending' }}
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <!-- Resize divider (visual only) -->
+      <div class="w-px bg-dark-200 dark:bg-dark-700 flex-shrink-0" />
 
-      <!-- Sidebar -->
-      <div class="space-y-6">
-        <!-- Search -->
-        <div class="card p-4">
-          <h3 class="font-semibold text-dark-900 dark:text-white mb-3">Quick Search</h3>
-          <form @submit.prevent="performSearch">
-            <div class="flex gap-2">
-              <input
-                v-model="searchQuery"
-                type="text"
-                placeholder="Search in knowledge base..."
-                class="input flex-1"
-              />
-              <button type="submit" class="btn-primary">
-                <MagnifyingGlassIcon class="w-5 h-5" />
-              </button>
-            </div>
-          </form>
+      <!-- CENTER: Chat panel -->
+      <ChatPanel :kb-id="kbId" :kb="knowledgeBase" />
 
-          <div v-if="searchResults.length" class="mt-4 space-y-2">
-            <div
-              v-for="result in searchResults"
-              :key="result.metadata.documentId"
-              class="p-3 bg-dark-50 dark:bg-dark-750 rounded-lg"
-            >
-              <p class="text-sm text-dark-900 dark:text-white line-clamp-3">
-                {{ result.content }}
-              </p>
-              <p class="text-xs text-dark-500 mt-2">
-                Score: {{ (result.score * 100).toFixed(0) }}%
-              </p>
-            </div>
-          </div>
-        </div>
+      <!-- Resize divider (visual only) -->
+      <div class="w-px bg-dark-200 dark:bg-dark-700 flex-shrink-0" />
 
-        <!-- Settings -->
-        <div class="card p-4">
-          <h3 class="font-semibold text-dark-900 dark:text-white mb-3">AI Settings</h3>
-          <div class="space-y-3 text-sm">
-            <div class="flex justify-between">
-              <span class="text-dark-500">Model</span>
-              <span class="text-dark-900 dark:text-white">{{ knowledgeBase.settings?.model || 'gpt-4o-mini' }}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-dark-500">Temperature</span>
-              <span class="text-dark-900 dark:text-white">{{ knowledgeBase.settings?.temperature || 0.7 }}</span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-dark-500">Citations</span>
-              <span class="text-dark-900 dark:text-white">{{ knowledgeBase.settings?.citationStyle || 'inline' }}</span>
-            </div>
-          </div>
-        </div>
+      <!-- RIGHT: Studio panel -->
+      <StudioPanel :kb-id="kbId" :documents="documents" />
 
-        <!-- Shared with -->
-        <div v-if="knowledgeBase.sharedWith?.length" class="card p-4">
-          <h3 class="font-semibold text-dark-900 dark:text-white mb-3">Shared with</h3>
-          <div class="space-y-2">
-            <div
-              v-for="share in knowledgeBase.sharedWith"
-              :key="share.user._id || share.user"
-              class="flex items-center gap-2"
-            >
-              <div class="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/30 flex items-center justify-center">
-                <span class="text-sm text-primary-600">{{ share.user.name?.[0] || '?' }}</span>
-              </div>
-              <span class="text-sm text-dark-900 dark:text-white flex-1">
-                {{ share.user.email || share.user }}
-              </span>
-              <span class="badge badge-primary text-xs">{{ share.permission }}</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Share Modal -->
-    <Modal v-model="showShareModal" title="Share Knowledge Base">
-      <form @submit.prevent="shareKnowledgeBase" class="space-y-4">
-        <Input
-          v-model="shareForm.email"
-          type="email"
-          label="Email Address"
-          placeholder="colleague@example.com"
-          required
-        />
-        <div>
-          <label class="block text-sm font-medium mb-1.5">Permission</label>
-          <select v-model="shareForm.permission" class="input">
-            <option value="view">View only</option>
-            <option value="edit">Can edit</option>
-            <option value="admin">Admin</option>
-          </select>
+    <Teleport to="body">
+      <div
+        v-if="showShareModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        @click.self="showShareModal = false"
+      >
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-xl w-full max-w-sm p-6">
+          <h2 class="text-base font-semibold text-dark-900 dark:text-white mb-4">Share notebook</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-dark-700 dark:text-dark-300 mb-1">
+                Email address
+              </label>
+              <input
+                v-model="shareForm.email"
+                type="email"
+                placeholder="colleague@example.com"
+                class="input"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-dark-700 dark:text-dark-300 mb-1">
+                Permission
+              </label>
+              <select v-model="shareForm.permission" class="input">
+                <option value="view">View only</option>
+                <option value="edit">Can edit</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+          </div>
+          <div class="flex gap-3 justify-end mt-6">
+            <button @click="showShareModal = false" class="btn-secondary">Cancel</button>
+            <button
+              @click="shareKnowledgeBase"
+              :disabled="!shareForm.email"
+              class="btn-primary"
+            >
+              Share
+            </button>
+          </div>
         </div>
-      </form>
-      <template #footer>
-        <button @click="showShareModal = false" class="btn-secondary">Cancel</button>
-        <button @click="shareKnowledgeBase" class="btn-primary" :disabled="!shareForm.email">
-          Share
-        </button>
-      </template>
-    </Modal>
+      </div>
+    </Teleport>
 
-    <!-- Edit Modal -->
-    <Modal v-model="showEditModal" title="Edit Knowledge Base">
-      <form @submit.prevent="updateKnowledgeBase" class="space-y-4">
-        <Input
-          v-model="editForm.name"
-          label="Name"
-          required
-        />
-        <Textarea
-          v-model="editForm.description"
-          label="Description"
-          :rows="3"
-        />
-      </form>
-      <template #footer>
-        <button @click="confirmDelete" class="btn-danger mr-auto">Delete</button>
-        <button @click="showEditModal = false" class="btn-secondary">Cancel</button>
-        <button @click="updateKnowledgeBase" class="btn-primary">Save</button>
-      </template>
-    </Modal>
+    <!-- Settings Modal -->
+    <Teleport to="body">
+      <div
+        v-if="showSettingsModal"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        @click.self="showSettingsModal = false"
+      >
+        <div class="bg-white dark:bg-dark-800 rounded-xl shadow-xl w-full max-w-sm p-6">
+          <h2 class="text-base font-semibold text-dark-900 dark:text-white mb-4">Notebook settings</h2>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-sm font-medium text-dark-700 dark:text-dark-300 mb-1">Name</label>
+              <input v-model="editForm.name" type="text" class="input" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-dark-700 dark:text-dark-300 mb-1">Description</label>
+              <textarea v-model="editForm.description" class="input resize-none" rows="2" />
+            </div>
+          </div>
+          <div class="flex gap-3 justify-end mt-6">
+            <button @click="confirmDelete" class="btn-danger mr-auto text-sm">Delete</button>
+            <button @click="showSettingsModal = false" class="btn-secondary">Cancel</button>
+            <button @click="saveSettings" class="btn-primary">Save</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useToastStore } from '@/stores'
-import { knowledgeBaseService, documentService } from '@/services'
-import { formatDistanceToNow } from 'date-fns'
-import Modal from '@/components/ui/Modal.vue'
-import Input from '@/components/ui/Input.vue'
-import Textarea from '@/components/ui/Textarea.vue'
+import { useToastStore, useThemeStore } from '@/stores'
+import { knowledgeBaseService } from '@/services'
 import {
   ArrowLeftIcon,
-  PlusIcon,
   ShareIcon,
-  PencilIcon,
-  ChatBubbleLeftRightIcon,
-  DocumentTextIcon,
-  DocumentIcon,
-  MagnifyingGlassIcon
+  Cog6ToothIcon,
+  SunIcon,
+  MoonIcon
 } from '@heroicons/vue/24/outline'
+import SourcePanel from '@/components/SourcePanel.vue'
+import ChatPanel from '@/components/ChatPanel.vue'
+import StudioPanel from '@/components/StudioPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
 const toastStore = useToastStore()
+const themeStore = useThemeStore()
 
+const kbId = computed(() => route.params.id)
 const loading = ref(true)
 const knowledgeBase = ref(null)
 const documents = ref([])
-const stats = ref({})
-const searchQuery = ref('')
-const searchResults = ref([])
 
 const showShareModal = ref(false)
-const showEditModal = ref(false)
+const showSettingsModal = ref(false)
 
-const shareForm = reactive({
-  email: '',
-  permission: 'view'
-})
+const shareForm = reactive({ email: '', permission: 'view' })
+const editForm = reactive({ name: '', description: '' })
 
-const editForm = reactive({
-  name: '',
-  description: ''
-})
+onMounted(() => loadAll())
+watch(() => route.params.id, () => loadAll())
 
-onMounted(async () => {
-  await loadKnowledgeBase()
-})
-
-watch(() => route.params.id, async () => {
-  await loadKnowledgeBase()
-})
+async function loadAll() {
+  await Promise.all([loadKnowledgeBase(), loadDocuments()])
+}
 
 async function loadKnowledgeBase() {
-  loading.value = true
   try {
-    const [kbResponse, statsResponse] = await Promise.all([
-      knowledgeBaseService.getKnowledgeBase(route.params.id),
-      knowledgeBaseService.getStats(route.params.id)
-    ])
-    
-    knowledgeBase.value = kbResponse.knowledgeBase
-    documents.value = kbResponse.knowledgeBase.documents || []
-    stats.value = statsResponse.stats
-    
-    // Initialize edit form
+    const response = await knowledgeBaseService.getKnowledgeBase(route.params.id)
+    knowledgeBase.value = response.knowledgeBase
     editForm.name = knowledgeBase.value.name
     editForm.description = knowledgeBase.value.description || ''
-  } catch (error) {
-    toastStore.error('Failed to load knowledge base')
+  } catch {
+    toastStore.error('Failed to load notebook')
     router.push('/knowledge-bases')
+  }
+}
+
+async function loadDocuments() {
+  loading.value = true
+  try {
+    // KB response includes populated documents array
+    const response = await knowledgeBaseService.getKnowledgeBase(route.params.id)
+    documents.value = response.knowledgeBase.documents || []
+  } catch {
+    documents.value = []
   } finally {
     loading.value = false
   }
 }
 
-async function handleFileUpload(event) {
-  const files = Array.from(event.target.files)
-  
-  for (const file of files) {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('knowledgeBaseId', route.params.id)
-    
-    try {
-      await documentService.uploadDocument(formData)
-      toastStore.success(`${file.name} uploaded`)
-    } catch (error) {
-      toastStore.error(`Failed to upload ${file.name}`)
-    }
-  }
-  
-  event.target.value = ''
-  await loadKnowledgeBase()
-}
-
-async function performSearch() {
-  if (!searchQuery.value.trim()) return
-  
-  try {
-    const response = await knowledgeBaseService.searchKnowledgeBase(
-      route.params.id,
-      searchQuery.value,
-      5
-    )
-    searchResults.value = response.results
-  } catch (error) {
-    toastStore.error('Search failed')
-  }
-}
-
 async function shareKnowledgeBase() {
   if (!shareForm.email) return
-  
   try {
-    await knowledgeBaseService.shareKnowledgeBase(
-      route.params.id,
-      shareForm.email,
-      shareForm.permission
-    )
+    await knowledgeBaseService.shareKnowledgeBase(route.params.id, shareForm.email, shareForm.permission)
     toastStore.success(`Shared with ${shareForm.email}`)
     showShareModal.value = false
     shareForm.email = ''
-    await loadKnowledgeBase()
   } catch (error) {
     toastStore.error(error.response?.data?.error || 'Failed to share')
   }
 }
 
-async function updateKnowledgeBase() {
+async function saveSettings() {
   try {
     await knowledgeBaseService.updateKnowledgeBase(route.params.id, {
       name: editForm.name,
       description: editForm.description
     })
-    toastStore.success('Knowledge base updated')
-    showEditModal.value = false
+    toastStore.success('Saved')
+    showSettingsModal.value = false
     await loadKnowledgeBase()
-  } catch (error) {
-    toastStore.error('Failed to update')
+  } catch {
+    toastStore.error('Failed to save')
   }
 }
 
 async function confirmDelete() {
-  if (!confirm('Are you sure you want to delete this knowledge base? This cannot be undone.')) {
-    return
-  }
-  
+  if (!confirm('Delete this notebook? This cannot be undone.')) return
   try {
     await knowledgeBaseService.deleteKnowledgeBase(route.params.id)
-    toastStore.success('Knowledge base deleted')
+    toastStore.success('Notebook deleted')
     router.push('/knowledge-bases')
-  } catch (error) {
+  } catch {
     toastStore.error('Failed to delete')
   }
-}
-
-function formatDate(date) {
-  if (!date) return ''
-  return formatDistanceToNow(new Date(date), { addSuffix: true })
-}
-
-function formatNumber(num) {
-  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
-  if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
-  return num.toString()
-}
-
-function getTypeColor(type) {
-  const colors = {
-    pdf: 'bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400',
-    webpage: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
-  }
-  return colors[type] || 'bg-dark-100 dark:bg-dark-700 text-dark-600 dark:text-dark-400'
-}
-
-function getStatusBadge(status) {
-  const badges = {
-    completed: 'badge-success',
-    processing: 'badge-warning',
-    pending: 'badge-primary',
-    failed: 'badge-danger'
-  }
-  return badges[status] || 'badge-primary'
 }
 </script>

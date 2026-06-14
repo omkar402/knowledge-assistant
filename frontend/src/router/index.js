@@ -4,34 +4,13 @@ import { useAuthStore } from '@/stores/auth'
 const routes = [
   {
     path: '/',
+    redirect: '/knowledge-bases'
+  },
+  {
+    path: '/',
     component: () => import('@/layouts/MainLayout.vue'),
     meta: { requiresAuth: true },
     children: [
-      {
-        path: '',
-        name: 'dashboard',
-        component: () => import('@/views/Dashboard.vue')
-      },
-      {
-        path: 'chat',
-        name: 'chat',
-        component: () => import('@/views/Chat.vue')
-      },
-      {
-        path: 'chat/:id',
-        name: 'chat-detail',
-        component: () => import('@/views/Chat.vue')
-      },
-      {
-        path: 'documents',
-        name: 'documents',
-        component: () => import('@/views/Documents.vue')
-      },
-      {
-        path: 'documents/:id',
-        name: 'document-detail',
-        component: () => import('@/views/DocumentDetail.vue')
-      },
       {
         path: 'knowledge-bases',
         name: 'knowledge-bases',
@@ -40,17 +19,8 @@ const routes = [
       {
         path: 'knowledge-bases/:id',
         name: 'knowledge-base-detail',
-        component: () => import('@/views/KnowledgeBaseDetail.vue')
-      },
-      {
-        path: 'teams',
-        name: 'teams',
-        component: () => import('@/views/Teams.vue')
-      },
-      {
-        path: 'teams/:id',
-        name: 'team-detail',
-        component: () => import('@/views/TeamDetail.vue')
+        component: () => import('@/views/KnowledgeBaseDetail.vue'),
+        meta: { fullscreen: true }
       },
       {
         path: 'settings',
@@ -88,23 +58,21 @@ const router = createRouter({
   routes
 })
 
-// Navigation guards
 router.beforeEach(async (to, from, next) => {
   const authStore = useAuthStore()
-  
-  // Wait for auth initialization
+
   if (!authStore.initialized) {
     await authStore.initAuth()
   }
-  
+
   const isAuthenticated = authStore.isAuthenticated
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth)
   const isGuestRoute = to.matched.some(record => record.meta.guest)
-  
+
   if (requiresAuth && !isAuthenticated) {
     next({ name: 'login', query: { redirect: to.fullPath } })
   } else if (isGuestRoute && isAuthenticated) {
-    next({ name: 'dashboard' })
+    next({ name: 'knowledge-bases' })
   } else {
     next()
   }
